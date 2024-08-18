@@ -104,6 +104,9 @@ extern uint64 sys_unlink(void);
 extern uint64 sys_wait(void);
 extern uint64 sys_write(void);
 extern uint64 sys_uptime(void);
+extern uint64 sys_trace(void);
+extern uint64 sys_sysinfo(void);
+extern struct proc proc[NPROC];
 
 static uint64 (*syscalls[])(void) = {
 [SYS_fork]    sys_fork,
@@ -127,20 +130,40 @@ static uint64 (*syscalls[])(void) = {
 [SYS_link]    sys_link,
 [SYS_mkdir]   sys_mkdir,
 [SYS_close]   sys_close,
+[SYS_trace]   sys_trace,
+[SYS_sysinfo] sys_sysinfo,
+};
+
+static char *syscall_names[] = {
+    "fork", "exit", "wait", "pipe", "read", "kill", "exec", "fstat",
+    "chdir", "dup", "getpid", "sbrk", "sleep", "uptime", "open",
+    "write", "mknod", "unlink", "link", "mkdir", "close", "trace",
+    "sysinfo"
 };
 
 void
 syscall(void)
 {
-  int num;
-  struct proc *p = myproc();
+    int num;
+    struct proc *p = myproc();
 
-  num = p->trapframe->a7;
-  if(num > 0 && num < NELEM(syscalls) && syscalls[num]) {
-    p->trapframe->a0 = syscalls[num]();
-  } else {
-    printf("%d %s: unknown sys call %d\n",
-            p->pid, p->name, num);
-    p->trapframe->a0 = -1;
-  }
+    num = p->trapframe->a7;
+
+    if (num > 0 && num < NELEM(syscalls) && syscalls[num]) {
+
+        // 调用系统调用并获取返回值
+        p->trapframe->a0 = syscalls[num]();
+
+        // 检查是否应该记录此系统调用
+        if ((1 << num) & p->mask) {
+            if (num > 0 && num <= sizeof(syscall_names) / sizeof(syscall_names[0])) {
+                printf("%d: syscall %s -> %d\n", p->pid, syscall_names[num - 1], p->trapframe->a0);
+            } else {
+                printf("%d: syscall unknown -> %d\n", p->pid, p->trapframe->a0);
+            }
+        }
+    } else {
+        printf("%d %s: unknown sys call %d\n", p->pid, p->name, num);
+        p->trapframe->a0 = -1;
+    }
 }

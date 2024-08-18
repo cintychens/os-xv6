@@ -281,6 +281,7 @@ fork(void)
     return -1;
   }
 
+   np->mask = p->mask;
   // Copy user memory from parent to child.
   if(uvmcopy(p->pagetable, np->pagetable, p->sz) < 0){
     freeproc(np);
@@ -653,4 +654,34 @@ procdump(void)
     printf("%d %s %s", p->pid, state, p->name);
     printf("\n");
   }
+}
+//sysinfo
+int get_proc_num(void)
+{
+    struct proc *p;
+    int count = 0;
+
+    // 遍历进程表，统计所有非僵尸状态的进程
+    for(p = proc; p < &proc[NPROC]; p++) {
+        if(p->state != UNUSED && p->state != ZOMBIE) {
+            count++;
+        }
+    }
+
+    return count;
+}
+
+uint64
+get_free_fd(void)
+{
+  uint64 num = 0;
+  int fd;
+  struct proc *p = myproc();
+
+  for(fd = 0; fd < NOFILE; fd++){
+    if(p->ofile[fd] == 0){
+      ++num;
+    }
+  }
+  return num;
 }
