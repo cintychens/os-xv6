@@ -184,3 +184,9 @@ void            virtio_disk_intr(void);
 
 // number of elements in fixed-size array
 #define NELEM(x) (sizeof(x)/sizeof((x)[0]))
+
+void            vmprintlevel(pagetable_t pt, int level);	
+void            vmprint(pagetable_t pt);	
+
+uint64 pgaccess(void *pg, int number, void *store);
+pte_t*          walk(pagetable_t,uint64,int);	//新添加的函数声明
