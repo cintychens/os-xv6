@@ -126,22 +126,27 @@ found:
     release(&p->lock);
     return 0;
   }
-
   // An empty user page table.
-  p->pagetable = proc_pagetable(p);
-  if(p->pagetable == 0){
+p->pagetable = proc_pagetable(p);
+if (p->pagetable == 0) {
     freeproc(p);
     release(&p->lock);
     return 0;
-  }
+}
 
-  // Set up new context to start executing at forkret,
-  // which returns to user space.
-  memset(&p->context, 0, sizeof(p->context));
-  p->context.ra = (uint64)forkret;
-  p->context.sp = p->kstack + PGSIZE;
+// Initialize alarm related fields
+p->alarmticks = 0;
+p->alarminterval = 0;
+p->sigreturned = 1;
 
-  return p;
+// Set up new context to start executing at forkret,
+// which returns to user space.
+memset(&p->context, 0, sizeof(p->context));
+p->context.ra = (uint64)forkret;
+p->context.sp = p->kstack + PGSIZE;
+
+return p;
+
 }
 
 // free a proc structure and the data hanging from it,

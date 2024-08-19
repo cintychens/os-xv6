@@ -92,10 +92,15 @@ struct proc {
   int killed;                  // If non-zero, have been killed
   int xstate;                  // Exit status to be returned to parent's wait
   int pid;                     // Process ID
-
+  int interval;                    // 用于设置时间间隔
+  uint64 handler;  
+  int ticks;                      // 用于记录进程运行的ticks数
+  struct trapframe *trapframe2;   // 用于存储恢复点的trapframe指针
   // wait_lock must be held when using this:
   struct proc *parent;         // Parent process
-
+  int alarmticks;      // 用于记录经过的时钟滴答数
+  int alarminterval;   // 定时器的间隔，单位是时钟滴答
+  int sigreturned;     // 标志是否返回到信号处理程序  
   // these are private to the process, so p->lock need not be held.
   uint64 kstack;               // Virtual address of kernel stack
   uint64 sz;                   // Size of process memory (bytes)
@@ -105,4 +110,6 @@ struct proc {
   struct file *ofile[NOFILE];  // Open files
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
+  struct trapframe alarmtrapframe;  // 用于保存处理信号之前的 trapframe
+  void (*alarmhandler)();           // 用于保存信号处理程序的函数指针
 };

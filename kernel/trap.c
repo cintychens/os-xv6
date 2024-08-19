@@ -46,10 +46,10 @@ usertrap(void)
   w_stvec((uint64)kernelvec);
 
   struct proc *p = myproc();
-  
+
   // save user program counter.
   p->trapframe->epc = r_sepc();
-  
+
   if(r_scause() == 8){
     // system call
 
@@ -59,7 +59,6 @@ usertrap(void)
     // sepc points to the ecall instruction,
     // but we want to return to the next instruction.
     p->trapframe->epc += 4;
-
     // an interrupt will change sstatus &c registers,
     // so don't enable until done with those registers.
     intr_on();
@@ -78,10 +77,25 @@ usertrap(void)
 
   // give up the CPU if this is a timer interrupt.
   if(which_dev == 2)
+  {
+        p->alarmticks += 1;
+        if ((p->alarmticks >= p->alarminterval) && (p->alarminterval > 0))
+  {
+                p->alarmticks = 0;
+                if (p->sigreturned == 1)                        
+                {
+                    p->alarmtrapframe = *(p->trapframe);
+                    p->trapframe->epc = (uint64)p->alarmhandler;
+                    p->sigreturned = 0;
+                    usertrapret();
+                }
+        }
     yield();
+  }
 
-  usertrapret();
+  usertrapret(); // Ensure this function is defined and used correctly
 }
+
 
 //
 // return to user space
