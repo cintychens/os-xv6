@@ -8,6 +8,8 @@
 #define NBUCKET 5
 #define NKEYS 100000
 
+pthread_mutex_t locks[NBUCKET];
+
 struct entry {
   int key;
   int value;
@@ -36,6 +38,8 @@ insert(int key, int value, struct entry **p, struct entry *n)
   *p = e;
 }
 
+pthread_mutex_t lock;
+
 static 
 void put(int key, int value)
 {
@@ -47,6 +51,7 @@ void put(int key, int value)
     if (e->key == key)
       break;
   }
+  pthread_mutex_lock(&lock);
   if(e){
     // update the existing key.
     e->value = value;
@@ -54,7 +59,7 @@ void put(int key, int value)
     // the new is new.
     insert(key, value, &table[i], table[i]);
   }
-
+  pthread_mutex_unlock(&lock);
 }
 
 static struct entry*
@@ -98,53 +103,66 @@ get_thread(void *xa)
   return NULL;
 }
 
-int
-main(int argc, char *argv[])
-{
-  pthread_t *tha;
-  void *value;
-  double t1, t0;
+int main(int argc, char *argv[]) {
+    pthread_t *tha;
+    void *value;
+    double t1, t0;
 
+    if (argc < 2) {
+        fprintf(stderr, "Usage: %s nthreads\n", argv[0]);
+        exit(-1);
+    }
+    
+    nthread = atoi(argv[1]);
+    tha = malloc(sizeof(pthread_t) * nthread);
+    srandom(0);
+    assert(NKEYS % nthread == 0);
 
-  if (argc < 2) {
-    fprintf(stderr, "Usage: %s nthreads\n", argv[0]);
-    exit(-1);
-  }
-  nthread = atoi(argv[1]);
-  tha = malloc(sizeof(pthread_t) * nthread);
-  srandom(0);
-  assert(NKEYS % nthread == 0);
-  for (int i = 0; i < NKEYS; i++) {
-    keys[i] = random();
-  }
+    // 初始化锁
+    for (int i = 0; i < NBUCKET; i++) {
+        pthread_mutex_init(&locks[i], NULL);  // 使用 locks 数组
+    }
 
-  //
-  // first the puts
-  //
-  t0 = now();
-  for(int i = 0; i < nthread; i++) {
-    assert(pthread_create(&tha[i], NULL, put_thread, (void *) (long) i) == 0);
-  }
-  for(int i = 0; i < nthread; i++) {
-    assert(pthread_join(tha[i], &value) == 0);
-  }
-  t1 = now();
+    for (int i = 0; i < NKEYS; i++) {
+        keys[i] = random();
+    }
 
-  printf("%d puts, %.3f seconds, %.0f puts/second\n",
-         NKEYS, t1 - t0, NKEYS / (t1 - t0));
+    //
+    // first the puts
+    //
+    t0 = now();
+    for(int i = 0; i < nthread; i++) {
+        assert(pthread_create(&tha[i], NULL, put_thread, (void *) (long) i) == 0);
+    }
+    for(int i = 0; i < nthread; i++) {
+        assert(pthread_join(tha[i], &value) == 0);
+    }
+    t1 = now();
 
-  //
-  // now the gets
-  //
-  t0 = now();
-  for(int i = 0; i < nthread; i++) {
-    assert(pthread_create(&tha[i], NULL, get_thread, (void *) (long) i) == 0);
-  }
-  for(int i = 0; i < nthread; i++) {
-    assert(pthread_join(tha[i], &value) == 0);
-  }
-  t1 = now();
+    printf("%d puts, %.3f seconds, %.0f puts/second\n",
+           NKEYS, t1 - t0, NKEYS / (t1 - t0));
 
-  printf("%d gets, %.3f seconds, %.0f gets/second\n",
-         NKEYS*nthread, t1 - t0, (NKEYS*nthread) / (t1 - t0));
+    //
+    // now the gets
+    //
+    t0 = now();
+    for(int i = 0; i < nthread; i++) {
+        assert(pthread_create(&tha[i], NULL, get_thread, (void *) (long) i) == 0);
+    }
+    for(int i = 0; i < nthread; i++) {
+        assert(pthread_join(tha[i], &value) == 0);
+    }
+    t1 = now();
+
+    printf("%d gets, %.3f seconds, %.0f gets/second\n",
+           NKEYS*nthread, t1 - t0, (NKEYS*nthread) / (t1 - t0));
+
+    // 程序结束前清理资源
+    free(tha);  // 正确的 free 函数调用
+    
+    for (int i = 0; i < NBUCKET; i++) {
+        pthread_mutex_destroy(&locks[i]);
+    }
+
+    return 0;  // main 函数正常结束
 }

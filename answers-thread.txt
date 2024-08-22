@@ -1,0 +1,5 @@
+Thread t1 started
+Thread t2 started
+Thread t1 finished
+Thread t2 finished
+
