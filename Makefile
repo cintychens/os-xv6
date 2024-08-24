@@ -3,7 +3,7 @@
 # (e.g., LAB=util).  Run make grade to test solution with the lab's
 # grade script (e.g., grade-lab-util).
 
--include conf/lab.mk
+-include conf/lab.mk 
 
 K=kernel
 U=user
