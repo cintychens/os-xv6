@@ -5,7 +5,7 @@
 #include "riscv.h"
 #include "defs.h"
 #include "fs.h"
-
+#include "vm.h"
 /*
  * the kernel's page table.
  */
@@ -300,32 +300,34 @@ uvmfree(pagetable_t pagetable, uint64 sz)
 int
 uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
 {
-  pte_t *pte;
-  uint64 pa, i;
-  uint flags;
-  char *mem;
+    pte_t *pte;
+    uint64 pa, i;
+    uint flags;
 
   for(i = 0; i < sz; i += PGSIZE){
     if((pte = walk(old, i, 0)) == 0)
       panic("uvmcopy: pte should exist");
     if((*pte & PTE_V) == 0)
       panic("uvmcopy: page not present");
-    pa = PTE2PA(*pte);
+    // 设置父进程的PTE_W为不可写，且为COW页
+    *pte = ((*pte) & ~PTE_W) | PTE_C; 
     flags = PTE_FLAGS(*pte);
-    if((mem = kalloc()) == 0)
-      goto err;
-    memmove(mem, (char*)pa, PGSIZE);
-    if(mappages(new, i, PGSIZE, (uint64)mem, flags) != 0){
-      kfree(mem);
+    pa = PTE2PA(*pte);  
+    // 不为子进程分配内存，指向pa，页表属性设置为flags即可
+    if(mappages(new, i, PGSIZE, pa, flags) != 0) {
+      printf("uvmcopy failed \n");
       goto err;
     }
+    kreferCount((void*)pa,1);   //该内存页的引用数加1(这里后面会提到)
   }
-  return 0;
+    return 0;
 
- err:
-  uvmunmap(new, 0, i / PGSIZE, 1);
-  return -1;
+    err:
+      panic("uvmcopy error");
+      uvmunmap(new,0,i / PGSIZE,1);
+      return -1;
 }
+
 
 // mark a PTE invalid for user access.
 // used by exec for the user stack guard page.
@@ -346,24 +348,43 @@ uvmclear(pagetable_t pagetable, uint64 va)
 int
 copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
 {
+
+  //此处发生于内核空间的复制，发生页异常时不会引起usertrap
+
   uint64 n, va0, pa0;
 
   while(len > 0){
-    va0 = PGROUNDDOWN(dstva);
-    pa0 = walkaddr(pagetable, va0);
+
+    va0 = PGROUNDDOWN(dstva);        //目标虚拟地址的页首地址
+    int res = uncopied_cow(pagetable,va0);
+    
+    if(res > 0){
+      if(cowalloc(pagetable,va0) != 0)
+        goto err;
+    }
+    else if(res < 0){
+        // printf(" %d \n",res);
+        goto err;
+    }
+
+    pa0 = walkaddr(pagetable, va0);  //获取虚拟页对应的物理页
     if(pa0 == 0)
-      return -1;
-    n = PGSIZE - (dstva - va0);
+      goto err;
+    n = PGSIZE - (dstva - va0);      //该页的剩余偏移量
     if(n > len)
       n = len;
-    memmove((void *)(pa0 + (dstva - va0)), src, n);
+    memmove((void *)(pa0 + (dstva - va0)), src, n);  //直接从物理地址copy到src
 
     len -= n;
     src += n;
-    dstva = va0 + PGSIZE;
+    dstva = va0 + PGSIZE;            //翻页
   }
   return 0;
+
+  err:
+    return -1;
 }
+
 
 // Copy from user to kernel.
 // Copy len bytes to dst from virtual address srcva in a given page table.
@@ -431,4 +452,50 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
   } else {
     return -1;
   }
+}
+/*判断是否为未分配内存COW页*/
+//PTE_C标志用于区分该页是否是没有分配独立内存的cow页
+//PTE_C与PTE_W标志一定为相反
+int 
+uncopied_cow(pagetable_t pgtbl, uint64 va){
+
+  if(va >= MAXVA) 
+    return -1;
+  pte_t* pte = walk(pgtbl, va, 0);
+  if(pte == 0)             // 如果这个页不存在
+    return -2;
+  if((*pte & PTE_V) == 0)
+    return -3;
+  if((*pte & PTE_U) == 0)
+    return -4;
+
+  return ((*pte) & PTE_C); // 有 PTE_C 的代表还没复制过，并且是 cow 页
+}
+/*给合法的cow页分配内存*/
+int 
+cowalloc(pagetable_t pgtbl, uint64 va){
+  pte_t* pte = walk(pgtbl, va, 0);
+  uint64 perm = PTE_FLAGS(*pte);
+
+  if(pte == 0) return -1;
+  uint64 prev_sta = PTE2PA(*pte); // 这里的 prev_sta 就是这个页帧原来使用的父进程的页表
+                                  // 这里写 sta 是因为这个地址是和页帧对齐的（page-aligned）
+                                  // 所以写个 sta 表示一个页帧的开始
+  uint64 newpage = (uint64)kalloc();     
+  if(!newpage){
+    return -1;
+  }
+  uint64 va_sta = PGROUNDDOWN(va); // 当前页帧
+
+  perm &= (~PTE_C); // 复制之后就不是合法的 COW 页了
+  perm |= PTE_W;    // 复制之后就可以写了
+
+  memmove((void*)newpage, (void*)prev_sta, PGSIZE); // 把父进程页帧的数据复制一遍
+  uvmunmap(pgtbl, va_sta, 1, 1);      // 然后取消对父进程页帧的映射
+  
+  if(mappages(pgtbl, va_sta, PGSIZE, (uint64)newpage, perm) < 0){
+    kfree((void*)newpage);
+    return -1;
+  }
+  return 0;
 }

@@ -5,6 +5,8 @@
 #include "spinlock.h"
 #include "proc.h"
 #include "defs.h"
+int uncopied_cow(pagetable_t pagetable, uint64 va);
+int cowalloc(pagetable_t pagetable, uint64 va);
 
 struct spinlock tickslock;
 uint ticks;
@@ -65,6 +67,14 @@ usertrap(void)
     intr_on();
 
     syscall();
+  }else if(r_scause() == 15) { // 缺页错误
+    if(uncopied_cow(p->pagetable,r_stval()) > 0){
+      if(r_stval() < PGSIZE)  //对0起始地址等低地址直接写，那么直接退出
+        p->killed = 1;
+      if(cowalloc(p->pagetable,r_stval()) < 0)
+        p->killed = 1;
+    }
+
   } else if((which_dev = devintr()) != 0){
     // ok
   } else {
