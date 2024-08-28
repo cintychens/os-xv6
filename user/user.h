@@ -1,6 +1,10 @@
 struct stat;
 struct rtcdate;
 
+char* mmap(char *addr, int length, int prot, int flags, int fd, uint offset);
+int munmap(char *addr, int length);
+
+
 // system calls
 int fork(void);
 int exit(int) __attribute__((noreturn));

@@ -140,6 +140,10 @@ found:
   memset(&p->context, 0, sizeof(p->context));
   p->context.ra = (uint64)forkret;
   p->context.sp = p->kstack + PGSIZE;
+  // 初始化 p 的 vma pool
+  for (int i = 0; i < MAX_VMA_POOL; i++) {
+    p->vma_pool[i].used = 0;
+  }
 
   return p;
 }
@@ -301,6 +305,14 @@ fork(void)
       np->ofile[i] = filedup(p->ofile[i]);
   np->cwd = idup(p->cwd);
 
+  // 将父进程 `np` 的 vma_pool 复制到子进程 `p` 中
+  for (int i = 0; i < MAX_VMA_POOL; i++) {
+    struct VMA* vma = p->vma_pool + i;
+    if (vma->used == 1) {
+        memmove(np->vma_pool + i, p->vma_pool + i, sizeof(struct VMA));
+        filedup(np->vma_pool[i].f);
+    }
+  }
   safestrcpy(np->name, p->name, sizeof(p->name));
 
   pid = np->pid;
@@ -653,4 +665,24 @@ procdump(void)
     printf("%d %s %s", p->pid, state, p->name);
     printf("\n");
   }
+}
+struct VMA* get_vma_pool() {
+    return myproc()->vma_pool;
+}
+
+uint64 vma_alloc() {
+    struct VMA* vma_pool = get_vma_pool();
+    for (int i = 0; i < MAX_VMA_POOL; i++) {
+        struct VMA *vma = vma_pool + i;
+        if (vma->used == 1) {
+            continue;
+        }
+        vma->used = 1;
+        return (uint64) vma;
+    }
+    return 0;
+}
+
+void vma_free(uint64 vma) {
+    ((struct VMA*) vma)->used = 0;
 }
